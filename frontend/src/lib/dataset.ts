@@ -1,0 +1,118 @@
+import Papa from "papaparse";
+import type { Dataset, Point } from "../types";
+
+const MAX_FILE = 5 * 1024 * 1024;
+const MAX_ROWS = 5000;
+
+export function numeric(value: unknown): number | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && Math.abs(parsed) <= 1e12 ? parsed : null;
+}
+
+export function selectedPoints(dataset: Dataset): {
+  points: Point[];
+  excluded: number;
+} {
+  const points = dataset.rows.flatMap((row) => {
+    const x = numeric(row[dataset.xColumn]);
+    const y = numeric(row[dataset.yColumn]);
+    return x === null || y === null ? [] : [{ x, y }];
+  });
+  return { points, excluded: dataset.rows.length - points.length };
+}
+
+export function validateSelection(dataset: Dataset): string | null {
+  if (dataset.xColumn === dataset.yColumn)
+    return "Choose different X and Y columns.";
+  const { points } = selectedPoints(dataset);
+  if (points.length < 2)
+    return "At least two rows need valid numeric values for both columns.";
+  if (points.length > MAX_ROWS)
+    return "Only up to 5,000 usable rows can be trained.";
+  if (points.every((point) => point.x === points[0].x))
+    return "X values must vary to fit a line.";
+  return null;
+}
+
+export async function parseDataset(file: File): Promise<Dataset> {
+  if (file.size > MAX_FILE)
+    throw new Error("File is larger than the 5 MB limit.");
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (extension !== "csv" && extension !== "json")
+    throw new Error("Choose a CSV or JSON file.");
+  const text = await file.text();
+  let rows: Record<string, unknown>[];
+  if (extension === "json") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error("This JSON file could not be parsed.");
+    }
+    if (
+      !Array.isArray(parsed) ||
+      !parsed.every(
+        (row) => row && typeof row === "object" && !Array.isArray(row),
+      )
+    ) {
+      throw new Error("JSON must be an array of flat objects.");
+    }
+    rows = parsed as Record<string, unknown>[];
+    if (
+      rows.some((row) =>
+        Object.values(row).some(
+          (value) => value !== null && typeof value === "object",
+        ),
+      )
+    ) {
+      throw new Error("Nested JSON values are not supported.");
+    }
+  } else {
+    const parsed = Papa.parse<Record<string, unknown>>(text, {
+      header: true,
+      skipEmptyLines: "greedy",
+      dynamicTyping: false,
+    });
+    if (parsed.errors.length)
+      throw new Error(`CSV parsing failed: ${parsed.errors[0].message}`);
+    rows = parsed.data;
+  }
+  if (!rows.length) throw new Error("The file has no data rows.");
+  if (rows.length > MAX_ROWS)
+    throw new Error(
+      "The file has more than 5,000 rows. Please use a smaller dataset.",
+    );
+  const columns = Array.from(
+    new Set(rows.flatMap((row) => Object.keys(row))),
+  ).filter(Boolean);
+  const numericColumns = columns.filter((column) =>
+    rows.some((row) => numeric(row[column]) !== null),
+  );
+  if (numericColumns.length < 2)
+    throw new Error("At least two numeric columns are required.");
+  const candidate: Dataset = {
+    name: file.name,
+    bytes: file.size,
+    rows,
+    columns,
+    numericColumns,
+    xColumn: numericColumns[0],
+    yColumn: numericColumns[1],
+  };
+  if (
+    !numericColumns.some((xColumn) =>
+      numericColumns.some(
+        (yColumn) =>
+          xColumn !== yColumn &&
+          !validateSelection({ ...candidate, xColumn, yColumn }),
+      ),
+    )
+  ) {
+    throw new Error(
+      "No numeric column pair has two usable points with varying X values.",
+    );
+  }
+  return candidate;
+}
