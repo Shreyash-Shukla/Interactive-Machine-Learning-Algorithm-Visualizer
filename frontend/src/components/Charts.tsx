@@ -14,10 +14,10 @@ import { RotateCcw } from "lucide-react";
 import type { Point, Snapshot } from "../types";
 
 const axis = {
-  axisLine: { lineStyle: { color: "#34435d" } },
+  axisLine: { lineStyle: { color: "#444449" } },
   axisTick: { show: false },
-  axisLabel: { color: "#8b99b0", fontSize: 11 },
-  splitLine: { lineStyle: { color: "#202d40", type: "dashed" as const } },
+  axisLabel: { color: "#a7a7ad", fontSize: 11 },
+  splitLine: { lineStyle: { color: "#303034" } },
 };
 const fmt = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -69,17 +69,17 @@ export function RegressionChart({
     legend: {
       top: 2,
       left: 8,
-      textStyle: { color: "#aab5c7", fontSize: 12 },
+      textStyle: { color: "#c3c3c8", fontSize: 12 },
       itemWidth: 13,
       itemHeight: 8,
       data: snapshot ? ["Data points", "Regression line"] : ["Data points"],
     },
-    grid: { left: 69, right: 24, top: 48, bottom: 62, containLabel: false },
+    grid: { left: 65, right: 26, top: 43, bottom: 55, containLabel: false },
     tooltip: {
       trigger: "item",
-      backgroundColor: "#172235",
-      borderColor: "#34435d",
-      textStyle: { color: "#e7ecf5" },
+      backgroundColor: "#27272b",
+      borderColor: "#55555a",
+      textStyle: { color: "#f5f5f3" },
       formatter: (params: unknown) => {
         const p = params as { seriesName: string; value: [number, number] };
         return `${p.seriesName}<br/>${xLabel}: <b>${fmt(p.value[0])}</b><br/>${yLabel}: <b>${fmt(p.value[1])}</b>`;
@@ -90,17 +90,18 @@ export function RegressionChart({
       name: xLabel,
       nameLocation: "middle",
       nameGap: 36,
-      nameTextStyle: { color: "#aab5c7", fontSize: 12 },
+      nameTextStyle: { color: "#c3c3c8", fontSize: 12 },
       min: minX - xPad,
       max: maxX + xPad,
       ...axis,
+      splitLine: { show: false },
     },
     yAxis: {
       type: "value",
       name: yLabel,
       nameLocation: "middle",
       nameGap: 51,
-      nameTextStyle: { color: "#aab5c7", fontSize: 12 },
+      nameTextStyle: { color: "#c3c3c8", fontSize: 12 },
       min: minY - yPad,
       max: maxY + yPad,
       ...axis,
@@ -111,12 +112,10 @@ export function RegressionChart({
         name: "Data points",
         type: "scatter",
         data: points.map((point) => [point.x, point.y]),
-        symbolSize: 10,
+        symbolSize: 9,
         itemStyle: {
-          color: "#56d3ef",
-          opacity: 0.9,
-          shadowBlur: 8,
-          shadowColor: "#2eabc8",
+          color: "#e6e6e8",
+          opacity: 0.86,
         },
         emphasis: { scale: 1.5 },
       },
@@ -129,10 +128,8 @@ export function RegressionChart({
               showSymbol: false,
               smooth: false,
               lineStyle: {
-                color: "#a884ff",
-                width: 3,
-                shadowBlur: 12,
-                shadowColor: "#7b5ac6",
+                color: "#7cb5ef",
+                width: 2.5,
               },
               z: 3,
             },
@@ -180,9 +177,9 @@ export function LossChart({
     grid: { left: 60, right: 20, top: 18, bottom: 34 },
     tooltip: {
       trigger: "axis",
-      backgroundColor: "#172235",
-      borderColor: "#34435d",
-      textStyle: { color: "#e7ecf5" },
+      backgroundColor: "#27272b",
+      borderColor: "#55555a",
+      textStyle: { color: "#f5f5f3" },
       formatter: (params: unknown) => {
         const p = (params as { value: [number, number] }[])[0];
         return p
@@ -204,8 +201,7 @@ export function LossChart({
         data: snapshots.map((s) => [s.epoch, s.loss]),
         showSymbol: false,
         smooth: false,
-        lineStyle: { color: "#9b82f7", width: 2 },
-        areaStyle: { color: "rgba(151,112,248,.12)" },
+        lineStyle: { color: "#7cb5ef", width: 2 },
       },
       ...(current
         ? [
@@ -215,8 +211,8 @@ export function LossChart({
               data: [[current.epoch, current.loss]],
               symbolSize: 11,
               itemStyle: {
-                color: "#a884ff",
-                borderColor: "#e5dbff",
+                color: "#7cb5ef",
+                borderColor: "#e6e6e8",
                 borderWidth: 2,
               },
               z: 5,

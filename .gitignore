@@ -12,3 +12,4 @@ __pycache__/
 test-results/
 playwright-report/
 visual-*.png
+.taste-skill/

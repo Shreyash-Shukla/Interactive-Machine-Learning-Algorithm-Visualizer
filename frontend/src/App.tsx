@@ -8,14 +8,12 @@ import {
   CircleHelp,
   Clock3,
   CloudUpload,
-  FileSpreadsheet,
   LockKeyhole,
   LogOut,
   Pause,
   Play,
   RotateCcw,
   SlidersHorizontal,
-  Sparkles,
   X,
 } from "lucide-react";
 import { ApiError, login, train } from "./lib/api";
@@ -180,7 +178,7 @@ function App() {
       <header className="app-header">
         <div className="brand">
           <span className="brand-mark">
-            <Activity size={20} strokeWidth={2.4} />
+            <Activity size={22} strokeWidth={1.8} />
           </span>
           <div>
             <div className="brand-name">
@@ -190,9 +188,9 @@ function App() {
           </div>
         </div>
         <div className="header-middle">
-          <span className="status-dot" /> LINEAR REGRESSION{" "}
+          <span className="status-dot" /> Linear regression{" "}
           <span className="header-divider" />{" "}
-          <span className="header-sub">Interactive visualizer</span>
+          <span className="header-sub">Gradient descent lab</span>
         </div>
         <div className="header-actions">
           {token ? (
@@ -219,23 +217,13 @@ function App() {
       <div className="workspace">
         <aside className="sidebar">
           <div className="sidebar-intro">
-            <div className="eyebrow">
-              <span className="eyebrow-line" /> THE PLAYGROUND
-            </div>
-            <h1>
-              See the line
-              <br />
-              <span>learn.</span>
-            </h1>
-            <p>
-              Explore how gradient descent finds the relationship hidden in
-              data, one step at a time.
-            </p>
+            <h2>Experiment setup</h2>
+            <p>Choose data, then follow how the fitted line changes with each training step.</p>
           </div>
 
           <section className="side-section">
             <div className="section-label">
-              <span>01</span> DATASET
+              Dataset
             </div>
             <label className="field-label" htmlFor="example-select">
               Example datasets
@@ -257,9 +245,6 @@ function App() {
             </div>
             {dataset ? (
               <div className="dataset-card">
-                <div className="dataset-icon">
-                  <FileSpreadsheet size={19} />
-                </div>
                 <div className="dataset-text">
                   <strong>{dataset.name}</strong>
                   <span>
@@ -270,9 +255,6 @@ function App() {
               </div>
             ) : (
               <div className="dataset-card">
-                <div className="dataset-icon">
-                  <Sparkles size={18} />
-                </div>
                 <div className="dataset-text">
                   <strong>Synthetic example</strong>
                   <span>{points.length} data points · precomputed replay</span>
@@ -290,7 +272,7 @@ function App() {
             <>
               <section className="side-section">
                 <div className="section-label">
-                  <span>02</span> YOUR DATA
+                  Your data
                 </div>
                 <input
                   ref={fileRef}
@@ -403,7 +385,7 @@ function App() {
               </section>
               <section className="side-section settings-section">
                 <div className="section-label">
-                  <span>03</span> TRAINING SETUP
+                  Training setup
                 </div>
                 <label className="field-label" htmlFor="learning-rate">
                   Learning rate{" "}
@@ -476,9 +458,6 @@ function App() {
 
           {!token && (
             <div className="public-note">
-              <div className="public-note-icon">
-                <Play size={15} fill="currentColor" />
-              </div>
               <div>
                 <strong>Example replay</strong>
                 <p>
@@ -493,11 +472,8 @@ function App() {
         <main className="main-content">
           <div className="content-heading">
             <div>
-              <div className="eyebrow violet">
-                VISUALIZATION <span className="eyebrow-arrow">/</span> LINEAR
-                REGRESSION
-              </div>
-              <h2>{dataset ? dataset.name : example.title}</h2>
+              <div className="eyebrow violet">Linear regression / Training replay</div>
+              <h1>{dataset ? dataset.name : example.title}</h1>
               <p>
                 {dataset
                   ? `A custom dataset with ${points.length} usable points.`
@@ -505,8 +481,27 @@ function App() {
               </p>
             </div>
             <span className="mode-badge">
-              <span /> {dataset ? "CUSTOM DATA" : "EXAMPLE DATA"}
+              <span /> {dataset ? "Custom data" : "Example data"}
             </span>
+          </div>
+
+          <div className="mobile-dataset">
+            <label htmlFor="mobile-example-select">Explore a dataset</label>
+            <div className="select-wrap">
+              <select
+                id="mobile-example-select"
+                value={dataset ? "" : exampleId}
+                onChange={(event) => selectExample(event.target.value)}
+              >
+                {dataset && <option value="">Uploaded dataset</option>}
+                {examples.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={16} />
+            </div>
           </div>
 
           {error && (
@@ -531,17 +526,14 @@ function App() {
           <section className="panel graph-panel">
             <div className="panel-top">
               <div className="panel-title">
-                <span className="panel-icon purple">
-                  <Activity size={16} />
-                </span>
                 <div>
                   <h3>Model fit</h3>
-                  <span>Scatterplot &amp; regression line</span>
+                  <span>{points.length} observations · {xLabel} → {yLabel}</span>
                 </div>
               </div>
               <span className="live-indicator">
                 <span />{" "}
-                {trainingBusy ? "TRAINING" : playing ? "PLAYING" : "READY"}
+                {trainingBusy ? "Training" : playing ? "Playing" : "Ready"}
               </span>
             </div>
             <RegressionChart
@@ -551,14 +543,14 @@ function App() {
               yLabel={yLabel}
             />
             <div className="equation-strip">
-              <span>CURRENT MODEL</span>
+              <span>Current model</span>
               <strong>
                 {snapshot
                   ? equation(snapshot.slope, snapshot.intercept)
                   : "Train to see a fitted line"}
               </strong>
               <span className="epoch-chip">
-                {snapshot ? `EPOCH ${snapshot.epoch}` : "NO RUN"}
+                {snapshot ? `Epoch ${snapshot.epoch}` : "No run"}
               </span>
             </div>
           </section>
@@ -605,26 +597,30 @@ function App() {
                     {training?.total_epochs ?? epochs}
                   </span>
                 </div>
-                <input
-                  type="range"
-                  aria-label="Training timeline"
-                  min={0}
-                  max={Math.max(0, (training?.snapshots.length ?? 1) - 1)}
-                  value={index}
-                  disabled={!training}
-                  onChange={(event) => {
-                    setPlaying(false);
-                    setIndex(Number(event.target.value));
-                  }}
+                <div
+                  className="timeline-track"
                   style={
                     {
                       "--progress": `${training ? (index / Math.max(1, training.snapshots.length - 1)) * 100 : 0}%`,
                     } as React.CSSProperties
                   }
-                />
+                >
+                  <input
+                    type="range"
+                    aria-label="Training timeline"
+                    min={0}
+                    max={Math.max(0, (training?.snapshots.length ?? 1) - 1)}
+                    value={index}
+                    disabled={!training}
+                    onChange={(event) => {
+                      setPlaying(false);
+                      setIndex(Number(event.target.value));
+                    }}
+                  />
+                </div>
               </div>
               <div className="speed">
-                <label htmlFor="playback-speed">SPEED</label>
+                <label htmlFor="playback-speed">Speed</label>
                 <div className="select-wrap">
                   <select
                     id="playback-speed"
@@ -644,9 +640,6 @@ function App() {
           <div className="bottom-grid">
             <section className="panel metrics-panel">
               <div className="panel-title">
-                <span className="panel-icon cyan">
-                  <Sparkles size={16} />
-                </span>
                 <div>
                   <h3>Model metrics</h3>
                   <span>On the selected training data</span>
@@ -654,22 +647,22 @@ function App() {
               </div>
               <div className="metrics-grid">
                 <div className="metric">
-                  <span>MEAN SQUARED ERROR</span>
+                  <span>Mean squared error</span>
                   <strong>{snapshot ? format(snapshot.mse) : "—"}</strong>
                   <small>Average squared error</small>
                 </div>
                 <div className="metric">
-                  <span>MEAN ABSOLUTE ERROR</span>
+                  <span>Mean absolute error</span>
                   <strong>{snapshot ? format(snapshot.mae) : "—"}</strong>
                   <small>Average absolute error</small>
                 </div>
                 <div className="metric">
-                  <span>R² SCORE</span>
+                  <span>R² score</span>
                   <strong>{snapshot ? format(snapshot.r2, 3) : "—"}</strong>
                   <small>Explained variation</small>
                 </div>
                 <div className="metric">
-                  <span>CURRENT EPOCH</span>
+                  <span>Current epoch</span>
                   <strong>{snapshot?.epoch ?? "—"}</strong>
                   <small>of {training?.total_epochs ?? epochs} epochs</small>
                 </div>
@@ -677,9 +670,6 @@ function App() {
             </section>
             <section className="panel loss-panel">
               <div className="panel-title">
-                <span className="panel-icon purple">
-                  <Activity size={16} />
-                </span>
                 <div>
                   <h3>
                     Training loss{" "}
@@ -705,7 +695,7 @@ function App() {
               from scratch
             </span>
             <span>
-              {token ? "ADMIN SESSION" : "PUBLIC DEMO"}{" "}
+              {token ? "Admin session" : "Public demo"}{" "}
               <span className="footer-separator">·</span> ML LAB v1.0
             </span>
           </footer>
