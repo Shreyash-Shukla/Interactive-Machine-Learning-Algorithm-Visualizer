@@ -24,4 +24,13 @@ describe('dataset parsing', () => {
     expect(validateSelection({ ...dataset, rows: [{ x: 1, y: 2 }, { x: 1, y: 3 }] })).toMatch(/vary/)
     await expect(parseDataset(new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'large.csv'))).rejects.toThrow(/5 MB/)
   })
+
+  it('enforces algorithm-specific point requirements', async () => {
+    const dataset = await parseDataset(new File(['x,y\n1,2\n1,2\n1,3'], 'points.csv'))
+    expect(validateSelection(dataset, 'kmeans', 3)).toMatch(/distinct/)
+    expect(validateSelection(dataset, 'kmeans', 2)).toBeNull()
+    expect(validateSelection(dataset, 'knn', 3)).toBeNull()
+    expect(validateSelection(dataset, 'knn', 5)).toMatch(/usable/)
+    expect(validateSelection({ ...dataset, yColumn: 'x' }, 'knn', 1)).toMatch(/different/)
+  })
 })

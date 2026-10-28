@@ -70,3 +70,15 @@ def test_training_rate_limit_and_cors(client):
     denied = client.options("/api/train", headers={"Origin": "https://untrusted.example",
         "Access-Control-Request-Method": "POST"})
     assert denied.status_code == 400
+
+
+def test_kmeans_is_protected_and_validated(client):
+    data = {"points": [{"x": 1, "y": 1}, {"x": 2, "y": 2},
+                       {"x": 9, "y": 9}, {"x": 10, "y": 10}], "clusters": 2}
+    assert client.post("/api/kmeans/train", json=data).status_code == 401
+    headers = auth(client)
+    response = client.post("/api/kmeans/train", json=data, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["settings"]["clusters"] == 2
+    assert len(response.json()["snapshots"][-1]["assignments"]) == 4
+    assert client.post("/api/kmeans/train", json={**data, "clusters": 6}, headers=headers).status_code == 422

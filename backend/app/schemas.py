@@ -16,5 +16,12 @@ class TrainRequest(BaseModel):
     epochs: Literal[100, 300, 500, 1000] = 500
 
 
+class KMeansRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
+    points: list[Point] = Field(min_length=2, max_length=5000)
+    clusters: Literal[2, 3, 4, 5] = 3
+    max_iterations: Literal[10, 20, 30] = 20
+
+
 class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)

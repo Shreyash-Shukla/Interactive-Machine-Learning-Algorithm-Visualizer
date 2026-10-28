@@ -15,7 +15,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse
 
 from app.ml.linear_regression import train
-from app.schemas import LoginRequest, TrainRequest
+from app.ml.kmeans import train as cluster
+from app.schemas import KMeansRequest, LoginRequest, TrainRequest
 
 MAX_BODY = 350_000
 TOKEN_MINUTES = 30
@@ -72,7 +73,7 @@ app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=Fals
 
 @app.middleware("http")
 async def enforce_body_size(request: Request, call_next):
-    if request.url.path in ("/api/train", "/api/auth/login") and request.method == "POST":
+    if request.url.path in ("/api/train", "/api/kmeans/train", "/api/auth/login") and request.method == "POST":
         length = request.headers.get("content-length")
         if length and length.isdigit() and int(length) > MAX_BODY:
             return JSONResponse({"detail": "Request body is too large"}, status_code=413)
@@ -114,6 +115,19 @@ def train_model(payload: TrainRequest, request: Request, _: str = Depends(requir
         raise HTTPException(429, "Training is busy. Please retry in a moment")
     try:
         return train(((point.x, point.y) for point in payload.points), payload.learning_rate, payload.epochs)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    finally:
+        _training_slot.release()
+
+
+@app.post("/api/kmeans/train")
+def train_clusters(payload: KMeansRequest, request: Request, _: str = Depends(require_admin)):
+    _limit(_training_attempts, _client(request), 10, 60)
+    if not _training_slot.acquire(blocking=False):
+        raise HTTPException(429, "Training is busy. Please retry in a moment")
+    try:
+        return cluster(((point.x, point.y) for point in payload.points), payload.clusters, payload.max_iterations)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     finally:

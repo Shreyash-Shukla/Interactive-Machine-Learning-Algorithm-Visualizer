@@ -167,9 +167,13 @@ export function RegressionChart({
 export function LossChart({
   snapshots,
   current,
+  stepLabel = "Epoch",
+  valueLabel = "MSE",
 }: {
-  snapshots: Snapshot[];
-  current: Snapshot | null;
+  snapshots: { epoch: number; loss: number }[];
+  current: { epoch: number; loss: number } | null;
+  stepLabel?: string;
+  valueLabel?: string;
 }) {
   const option: EChartsOption = {
     animation: false,
@@ -183,7 +187,7 @@ export function LossChart({
       formatter: (params: unknown) => {
         const p = (params as { value: [number, number] }[])[0];
         return p
-          ? `Epoch ${p.value[0]}<br/>MSE: <b>${fmt(p.value[1])}</b>`
+          ? `${stepLabel} ${p.value[0]}<br/>${valueLabel}: <b>${fmt(p.value[1])}</b>`
           : "";
       },
     },
@@ -197,7 +201,7 @@ export function LossChart({
     series: [
       {
         type: "line",
-        name: "Loss",
+        name: valueLabel,
         data: snapshots.map((s) => [s.epoch, s.loss]),
         showSymbol: false,
         smooth: false,

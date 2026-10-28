@@ -23,7 +23,7 @@ export function selectedPoints(dataset: Dataset): {
   return { points, excluded: dataset.rows.length - points.length };
 }
 
-export function validateSelection(dataset: Dataset): string | null {
+export function validateSelection(dataset: Dataset, algorithm: "linear" | "kmeans" | "knn" = "linear", count = 2): string | null {
   if (dataset.xColumn === dataset.yColumn)
     return "Choose different X and Y columns.";
   const { points } = selectedPoints(dataset);
@@ -31,8 +31,12 @@ export function validateSelection(dataset: Dataset): string | null {
     return "At least two rows need valid numeric values for both columns.";
   if (points.length > MAX_ROWS)
     return "Only up to 5,000 usable rows can be trained.";
-  if (points.every((point) => point.x === points[0].x))
+  if (algorithm === "linear" && points.every((point) => point.x === points[0].x))
     return "X values must vary to fit a line.";
+  if (algorithm === "kmeans" && new Set(points.map((point) => `${point.x},${point.y}`)).size < count)
+    return `Choose at least ${count} distinct points for clustering.`;
+  if (algorithm === "knn" && points.length < count)
+    return `Choose at least ${count} usable points for KNN.`;
   return null;
 }
 
@@ -106,12 +110,12 @@ export async function parseDataset(file: File): Promise<Dataset> {
       numericColumns.some(
         (yColumn) =>
           xColumn !== yColumn &&
-          !validateSelection({ ...candidate, xColumn, yColumn }),
+          !validateSelection({ ...candidate, xColumn, yColumn }, "knn"),
       ),
     )
   ) {
     throw new Error(
-      "No numeric column pair has two usable points with varying X values.",
+      "No numeric column pair has two usable points.",
     );
   }
   return candidate;

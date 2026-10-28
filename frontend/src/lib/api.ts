@@ -1,4 +1,4 @@
-import type { Point, Training } from "../types";
+import type { ClusterTraining, Point, Training } from "../types";
 
 const base = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
@@ -65,3 +65,9 @@ export const train = (
   epochs: number,
   token: string,
 ) => call<Training>("/api/train", { points, learning_rate, epochs }, token);
+export const trainKMeans = (
+  points: Point[],
+  clusters: number,
+  max_iterations: number,
+  token: string,
+) => call<ClusterTraining>("/api/kmeans/train", { points, clusters, max_iterations }, token);

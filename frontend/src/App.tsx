@@ -10,21 +10,31 @@ import {
   CloudUpload,
   LockKeyhole,
   LogOut,
+  Eye,
+  EyeOff,
   Pause,
   Play,
   RotateCcw,
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { ApiError, login, train } from "./lib/api";
-import { parseDataset, selectedPoints, validateSelection } from "./lib/dataset";
+import { ApiError, login, train, trainKMeans } from "./lib/api";
+import { numeric, parseDataset, selectedPoints, validateSelection } from "./lib/dataset";
+import { predictKnn } from "./lib/knn";
 import { LossChart, RegressionChart } from "./components/Charts";
+import { ClusterChart, KnnChart } from "./components/AlgorithmCharts";
 import { Button } from "./components/ui/button";
 import examplesJson from "./data/examples.json";
-import type { Dataset, Example, Point, Training } from "./types";
+import clusterExamplesJson from "./data/cluster_examples.json";
+import type { ClusterExample, ClusterTraining, Dataset, Example, Point, Training } from "./types";
 import "./App.css";
 
 const examples = examplesJson as Example[];
+const clusterExamples = clusterExamplesJson as ClusterExample[];
+type Algorithm = "linear" | "kmeans" | "knn";
+const algorithmNames: Record<Algorithm, string> = {
+  linear: "Linear regression", kmeans: "K-Means clustering", knn: "KNN regression",
+};
 const format = (value: number | null, digits = 2) =>
   value === null
     ? "Not defined"
@@ -35,11 +45,13 @@ const equation = (slope: number, intercept: number) =>
   `y = ${format(slope, 3)}x ${intercept < 0 ? "−" : "+"} ${format(Math.abs(intercept), 3)}`;
 
 function App() {
+  const [algorithm, setAlgorithm] = useState<Algorithm>("linear");
   const [exampleId, setExampleId] = useState(examples[0].id);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
   const [trainingBusy, setTrainingBusy] = useState(false);
   const [error, setError] = useState("");
@@ -47,13 +59,22 @@ function App() {
   const [slow, setSlow] = useState(false);
   const [learningRate, setLearningRate] = useState(0.05);
   const [epochs, setEpochs] = useState(500);
+  const [clusters, setClusters] = useState(3);
+  const [maxIterations, setMaxIterations] = useState(20);
+  const [neighbors, setNeighbors] = useState(3);
+  const [linearInput, setLinearInput] = useState("");
+  const [knnInput, setKnnInput] = useState("");
   const [customTraining, setCustomTraining] = useState<Training | null>(null);
+  const [customClusterTraining, setCustomClusterTraining] = useState<ClusterTraining | null>(null);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const example = examples.find((item) => item.id === exampleId) ?? examples[0];
+  const linearExample = examples.find((item) => item.id === exampleId) ?? examples[0];
+  const clusterExample = clusterExamples.find((item) => item.id === exampleId) ?? clusterExamples[0];
+  const example = algorithm === "kmeans" ? clusterExample : linearExample;
+  const activeExamples = algorithm === "kmeans" ? clusterExamples : examples;
   const points: Point[] = useMemo(
     () =>
       dataset
@@ -61,24 +82,35 @@ function App() {
         : example.points.map(([x, y]) => ({ x, y })),
     [dataset, example],
   );
-  const selectionError = dataset ? validateSelection(dataset) : null;
-  const training = dataset
+  const selectionError = dataset ? validateSelection(dataset, algorithm, algorithm === "kmeans" ? clusters : neighbors) : null;
+  const training: Training | null = algorithm === "linear" ? (dataset
     ? customTraining
-    : (customTraining ?? example.training);
+    : (customTraining ?? linearExample.training)) : null;
+  const clusterTraining: ClusterTraining | null = algorithm === "kmeans" ? (dataset
+    ? customClusterTraining
+    : (customClusterTraining ?? clusterExample.training)) : null;
+  const playback = algorithm === "kmeans" ? clusterTraining : training;
   const snapshot = training?.snapshots[index] ?? null;
+  const clusterSnapshot = clusterTraining?.snapshots[index] ?? null;
   const xLabel = dataset?.xColumn ?? example.xLabel;
   const yLabel = dataset?.yColumn ?? example.yLabel;
   const excluded = dataset ? selectedPoints(dataset).excluded : 0;
+  const linearX = numeric(linearInput);
+  const linearPrediction = training && linearX !== null
+    ? training.final_slope * linearX + training.final_intercept : null;
+  const knnX = numeric(knnInput);
+  const knnResult = algorithm === "knn" && !selectionError && knnX !== null && points.length >= neighbors
+    ? predictKnn(points, knnX, neighbors) : null;
 
   useEffect(() => {
-    if (!playing || !training) return;
+    if (!playing || !playback) return;
     const motionReduced = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
     const timer = window.setInterval(
       () =>
         setIndex((previous) => {
-          if (previous >= training.snapshots.length - 1) {
+          if (previous >= playback.snapshots.length - 1) {
             setPlaying(false);
             return previous;
           }
@@ -87,13 +119,22 @@ function App() {
       motionReduced ? 180 / speed : 65 / speed,
     );
     return () => window.clearInterval(timer);
-  }, [playing, speed, training]);
+  }, [playing, speed, playback]);
 
   function clearRun() {
     setPlaying(false);
     setIndex(0);
     setCustomTraining(null);
+    setCustomClusterTraining(null);
+    setLinearInput("");
+    setKnnInput("");
     setError("");
+  }
+  function selectAlgorithm(next: Algorithm) {
+    setAlgorithm(next);
+    setDataset(null);
+    setExampleId(next === "kmeans" ? clusterExamples[0].id : examples[0].id);
+    clearRun();
   }
   function selectExample(id: string) {
     setDataset(null);
@@ -147,8 +188,13 @@ function App() {
     setPlaying(false);
     const slowTimer = window.setTimeout(() => setSlow(true), 8000);
     try {
-      const result = await train(points, learningRate, epochs, token);
-      setCustomTraining(result);
+      if (algorithm === "kmeans") {
+        const result = await trainKMeans(points, clusters, maxIterations, token);
+        setCustomClusterTraining(result);
+      } else {
+        const result = await train(points, learningRate, epochs, token);
+        setCustomTraining(result);
+      }
       setIndex(0);
       setPlaying(true);
     } catch (cause) {
@@ -168,6 +214,7 @@ function App() {
     setToken(null);
     setDataset(null);
     setCustomTraining(null);
+    setCustomClusterTraining(null);
     setIndex(0);
     setPlaying(false);
     setError("");
@@ -188,9 +235,9 @@ function App() {
           </div>
         </div>
         <div className="header-middle">
-          <span className="status-dot" /> Linear regression{" "}
+          <span className="status-dot" /> {algorithmNames[algorithm]}{" "}
           <span className="header-divider" />{" "}
-          <span className="header-sub">Gradient descent lab</span>
+          <span className="header-sub">Algorithm visualizer</span>
         </div>
         <div className="header-actions">
           {token ? (
@@ -215,13 +262,26 @@ function App() {
       </header>
 
       <div className="workspace">
-        <aside className="sidebar">
+        <aside className={`sidebar ${token ? "" : "public-sidebar"}`}>
           <div className="sidebar-intro">
             <h2>Experiment setup</h2>
-            <p>Choose data, then follow how the fitted line changes with each training step.</p>
+            <p>Choose an algorithm and dataset, then explore how it reaches a result.</p>
           </div>
 
-          <section className="side-section">
+          <section className="side-section algorithm-section">
+            <div className="section-label">Algorithm</div>
+            <label className="field-label" htmlFor="algorithm-select">Choose an algorithm</label>
+            <div className="select-wrap">
+              <select id="algorithm-select" value={algorithm} onChange={(event) => selectAlgorithm(event.target.value as Algorithm)}>
+                <option value="linear">Linear regression</option>
+                <option value="kmeans">K-Means clustering</option>
+                <option value="knn">KNN regression</option>
+              </select>
+              <ChevronDown size={16} />
+            </div>
+          </section>
+
+          <section className="side-section dataset-section">
             <div className="section-label">
               Dataset
             </div>
@@ -235,7 +295,7 @@ function App() {
                 onChange={(event) => selectExample(event.target.value)}
               >
                 {dataset && <option value="">Uploaded dataset</option>}
-                {examples.map((item) => (
+                {activeExamples.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.title}
                   </option>
@@ -383,10 +443,11 @@ function App() {
                   </>
                 )}
               </section>
-              <section className="side-section settings-section">
+              {algorithm !== "knn" && <section className="side-section settings-section">
                 <div className="section-label">
                   Training setup
                 </div>
+                {algorithm === "linear" ? <>
                 <label className="field-label" htmlFor="learning-rate">
                   Learning rate{" "}
                   <span title="How large each gradient descent update is.">
@@ -427,6 +488,22 @@ function App() {
                   </select>
                   <ChevronDown size={16} />
                 </div>
+                </> : <>
+                  <label className="field-label" htmlFor="cluster-count">Clusters (K)</label>
+                  <div className="select-wrap">
+                    <select id="cluster-count" value={clusters} onChange={(event) => { setClusters(Number(event.target.value)); clearRun(); }}>
+                      {[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} clusters</option>)}
+                    </select>
+                    <ChevronDown size={16} />
+                  </div>
+                  <label className="field-label spaced" htmlFor="max-iterations">Maximum iterations</label>
+                  <div className="select-wrap">
+                    <select id="max-iterations" value={maxIterations} onChange={(event) => setMaxIterations(Number(event.target.value))}>
+                      {[10, 20, 30].map((value) => <option key={value} value={value}>{value} iterations</option>)}
+                    </select>
+                    <ChevronDown size={16} />
+                  </div>
+                </>}
                 {selectionError && (
                   <p className="field-error" role="alert">
                     {selectionError}
@@ -453,6 +530,7 @@ function App() {
                   Training runs on the backend. Your data is kept in memory.
                 </p>
               </section>
+              }
             </>
           )}
 
@@ -461,8 +539,8 @@ function App() {
               <div>
                 <strong>Example replay</strong>
                 <p>
-                  These real training snapshots are bundled with the site. Sign
-                  in as admin to train your own data.
+                  {algorithm === "knn" ? "Try a prediction with the sample points. Sign in to use your own data." :
+                    "Real training snapshots are bundled with the site. Sign in to train your own data."}
                 </p>
               </div>
             </div>
@@ -472,17 +550,31 @@ function App() {
         <main className="main-content">
           <div className="content-heading">
             <div>
-              <div className="eyebrow violet">Linear regression / Training replay</div>
+            <div className="eyebrow violet">{algorithmNames[algorithm]} / {algorithm === "knn" ? "Prediction" : "Training replay"}</div>
               <h1>{dataset ? dataset.name : example.title}</h1>
               <p>
                 {dataset
                   ? `A custom dataset with ${points.length} usable points.`
-                  : "Watch a model improve its fit with every recorded step."}
+                  : algorithm === "knn" ? "See which nearby examples shape a prediction." :
+                    algorithm === "kmeans" ? "Watch the cluster centers move toward groups of points." :
+                    "Watch a model improve its fit with every recorded step."}
               </p>
             </div>
             <span className="mode-badge">
               <span /> {dataset ? "Custom data" : "Example data"}
             </span>
+          </div>
+
+          <div className="mobile-algorithm">
+            <label htmlFor="mobile-algorithm-select">Choose an algorithm</label>
+            <div className="select-wrap">
+              <select id="mobile-algorithm-select" value={algorithm} onChange={(event) => selectAlgorithm(event.target.value as Algorithm)}>
+                <option value="linear">Linear regression</option>
+                <option value="kmeans">K-Means clustering</option>
+                <option value="knn">KNN regression</option>
+              </select>
+              <ChevronDown size={16} />
+            </div>
           </div>
 
           <div className="mobile-dataset">
@@ -494,7 +586,7 @@ function App() {
                 onChange={(event) => selectExample(event.target.value)}
               >
                 {dataset && <option value="">Uploaded dataset</option>}
-                {examples.map((item) => (
+                {activeExamples.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.title}
                   </option>
@@ -527,7 +619,7 @@ function App() {
             <div className="panel-top">
               <div className="panel-title">
                 <div>
-                  <h3>Model fit</h3>
+                  <h3>{algorithm === "linear" ? "Model fit" : algorithm === "kmeans" ? "Cluster map" : "Neighbor map"}</h3>
                   <span>{points.length} observations · {xLabel} → {yLabel}</span>
                 </div>
               </div>
@@ -536,13 +628,17 @@ function App() {
                 {trainingBusy ? "Training" : playing ? "Playing" : "Ready"}
               </span>
             </div>
-            <RegressionChart
+            {algorithm === "linear" ? <RegressionChart
               points={points}
               snapshot={snapshot}
               xLabel={xLabel}
               yLabel={yLabel}
-            />
-            <div className="equation-strip">
+            /> : algorithm === "kmeans" ? <ClusterChart
+              points={points} snapshot={clusterSnapshot} clusters={clusterTraining?.settings.clusters ?? clusters}
+              xLabel={xLabel} yLabel={yLabel}
+            /> : <KnnChart points={points} query={knnX} prediction={knnResult?.prediction ?? null}
+              neighbors={knnResult?.neighbors ?? []} xLabel={xLabel} yLabel={yLabel} />}
+            {algorithm === "linear" ? <div className="equation-strip">
               <span>Current model</span>
               <strong>
                 {snapshot
@@ -552,19 +648,68 @@ function App() {
               <span className="epoch-chip">
                 {snapshot ? `Epoch ${snapshot.epoch}` : "No run"}
               </span>
-            </div>
+            </div> : algorithm === "kmeans" ? <div className="equation-strip">
+              <span>Current iteration</span>
+              <strong>{clusterSnapshot ? `${clusterSnapshot.iteration} / ${clusterTraining?.total_iterations}` : "Train to see clusters"}</strong>
+              <span className="epoch-chip">{clusterSnapshot ? `${clusterTraining?.settings.clusters} clusters` : "No run"}</span>
+            </div> : <div className="equation-strip">
+              <span>Prediction</span>
+              <strong>{knnResult ? `${yLabel} ≈ ${format(knnResult.prediction)}` : "Enter X to predict Y"}</strong>
+              <span className="epoch-chip">K = {neighbors}</span>
+            </div>}
           </section>
 
-          <section className="panel playback-panel">
+          {algorithm === "linear" && training && <section className="panel prediction-panel">
+            <div className="panel-title"><div><h3>Predict with the final model</h3><span>Final equation: {equation(training.final_slope, training.final_intercept)} · after {training.total_epochs} epochs</span></div></div>
+            <div className="prediction-row">
+              <label htmlFor="linear-predict-x">{xLabel} (X)</label>
+              <input id="linear-predict-x" type="number" inputMode="decimal" value={linearInput}
+                onChange={(event) => setLinearInput(event.target.value)} placeholder="Enter an X value" />
+              <div className="prediction-result" aria-live="polite">
+                <span>Predicted {yLabel}</span>
+                <strong>{linearPrediction !== null && Number.isFinite(linearPrediction) ? format(linearPrediction) : "—"}</strong>
+              </div>
+            </div>
+            {linearInput && linearX === null && <p className="field-error">Enter a finite X value within ±1e12.</p>}
+            {linearPrediction !== null && !Number.isFinite(linearPrediction) && <p className="field-error">This X value produces a result outside the supported numeric range.</p>}
+            {linearX !== null && (linearX < Math.min(...points.map((point) => point.x)) || linearX > Math.max(...points.map((point) => point.x))) &&
+              <p className="side-hint">This is outside the training data range, so the prediction is an extrapolation.</p>}
+          </section>}
+
+          {algorithm === "knn" && <section className="panel prediction-panel">
+            <div className="panel-title"><div><h3>Find a prediction</h3><span>The closest {neighbors} X values determine the average Y.</span></div></div>
+            <div className="prediction-settings">
+              <label className="field-label" htmlFor="neighbor-count">Nearest neighbors (K)</label>
+              <div className="select-wrap">
+                <select id="neighbor-count" value={neighbors} onChange={(event) => setNeighbors(Number(event.target.value))}>
+                  {[1, 3, 5, 7, 9].map((value) => <option key={value} value={value}>{value} neighbors</option>)}
+                </select><ChevronDown size={16} />
+              </div>
+            </div>
+            <div className="prediction-row">
+              <label htmlFor="knn-predict-x">{xLabel} (X)</label>
+              <input id="knn-predict-x" type="number" inputMode="decimal" value={knnInput}
+                onChange={(event) => setKnnInput(event.target.value)} placeholder="Enter an X value" />
+              <div className="prediction-result" aria-live="polite">
+                <span>Predicted {yLabel}</span><strong>{knnResult ? format(knnResult.prediction) : "—"}</strong>
+              </div>
+            </div>
+            {knnInput && knnX === null && <p className="field-error">Enter a finite X value within ±1e12.</p>}
+            {selectionError && <p className="field-error">{selectionError}</p>}
+            {knnResult && <p className="side-hint">Using points at X = {knnResult.neighbors.map(({ point }) => format(point.x)).join(", ")}.</p>}
+            <p className="side-hint">KNN averages nearby Y values. It does not train over epochs.</p>
+          </section>}
+
+          {algorithm !== "knn" && <section className="panel playback-panel">
             <div className="playback-main">
               <div className="playback-buttons">
                 <button
                   className="play-button"
                   type="button"
-                  disabled={!training}
+                  disabled={!playback}
                   aria-label={playing ? "Pause" : "Play"}
                   onClick={() => {
-                    if (training && index >= training.snapshots.length - 1)
+                    if (playback && index >= playback.snapshots.length - 1)
                       setIndex(0);
                     setPlaying(!playing);
                   }}
@@ -578,7 +723,7 @@ function App() {
                 <button
                   className="icon-button"
                   type="button"
-                  disabled={!training}
+                  disabled={!playback}
                   title="Restart playback"
                   aria-label="Restart playback"
                   onClick={() => {
@@ -591,17 +736,17 @@ function App() {
               </div>
               <div className="timeline">
                 <div className="timeline-labels">
-                  <strong>Training progress</strong>
+                  <strong>{algorithm === "kmeans" ? "Clustering progress" : "Training progress"}</strong>
                   <span>
-                    Epoch {snapshot?.epoch ?? 0} /{" "}
-                    {training?.total_epochs ?? epochs}
+                    {algorithm === "kmeans" ? `Iteration ${clusterSnapshot?.iteration ?? 0} / ${clusterTraining?.total_iterations ?? maxIterations}` :
+                      `Epoch ${snapshot?.epoch ?? 0} / ${training?.total_epochs ?? epochs}`}
                   </span>
                 </div>
                 <div
                   className="timeline-track"
                   style={
                     {
-                      "--progress": `${training ? (index / Math.max(1, training.snapshots.length - 1)) * 100 : 0}%`,
+                      "--progress": `${playback ? (index / Math.max(1, playback.snapshots.length - 1)) * 100 : 0}%`,
                     } as React.CSSProperties
                   }
                 >
@@ -609,9 +754,9 @@ function App() {
                     type="range"
                     aria-label="Training timeline"
                     min={0}
-                    max={Math.max(0, (training?.snapshots.length ?? 1) - 1)}
+                    max={Math.max(0, (playback?.snapshots.length ?? 1) - 1)}
                     value={index}
-                    disabled={!training}
+                    disabled={!playback}
                     onChange={(event) => {
                       setPlaying(false);
                       setIndex(Number(event.target.value));
@@ -635,9 +780,9 @@ function App() {
                 </div>
               </div>
             </div>
-          </section>
+          </section>}
 
-          <div className="bottom-grid">
+          {algorithm === "linear" && <div className="bottom-grid">
             <section className="panel metrics-panel">
               <div className="panel-title">
                 <div>
@@ -688,11 +833,28 @@ function App() {
                 </div>
               )}
             </section>
-          </div>
+          </div>}
+          {algorithm === "kmeans" && <div className="bottom-grid">
+            <section className="panel metrics-panel">
+              <div className="panel-title"><div><h3>Cluster summary</h3><span>At the selected iteration</span></div></div>
+              <div className="metrics-grid">
+                <div className="metric"><span>Inertia</span><strong>{clusterSnapshot ? format(clusterSnapshot.inertia) : "—"}</strong><small>Sum of squared scaled distances</small></div>
+                <div className="metric"><span>Iteration</span><strong>{clusterSnapshot?.iteration ?? "—"}</strong><small>of {clusterTraining?.total_iterations ?? maxIterations}</small></div>
+                <div className="metric"><span>Clusters</span><strong>{clusterTraining?.settings.clusters ?? clusters}</strong><small>Requested groups</small></div>
+                <div className="metric"><span>Assigned points</span><strong>{clusterSnapshot?.assignments.length ?? "—"}</strong><small>From the selected data</small></div>
+              </div>
+            </section>
+            <section className="panel loss-panel">
+              <div className="panel-title"><div><h3>Inertia over time</h3><span>Lower values mean points are closer to their centers.</span></div></div>
+              {clusterTraining ? <LossChart stepLabel="Iteration" valueLabel="Inertia"
+                snapshots={clusterTraining.snapshots.map((item) => ({ epoch: item.iteration, loss: item.inertia }))}
+                current={clusterSnapshot ? { epoch: clusterSnapshot.iteration, loss: clusterSnapshot.inertia } : null} /> :
+                <div className="empty-loss">Train the model to see inertia over time.</div>}
+            </section>
+          </div>}
           <footer className="app-footer">
             <span>
-              <span className="footer-dot" /> Batch gradient descent · Computed
-              from scratch
+              <span className="footer-dot" /> {algorithm === "linear" ? "Batch gradient descent" : algorithm === "kmeans" ? "K-Means iterations" : "Nearest neighbor averaging"} · Computed from scratch
             </span>
             <span>
               {token ? "Admin session" : "Public demo"}{" "}
@@ -709,6 +871,7 @@ function App() {
           if (!open) {
             setLoginError("");
             setPassword("");
+            setShowPassword(false);
           }
         }}
       >
@@ -725,16 +888,19 @@ function App() {
             </Dialog.Description>
             <form onSubmit={(event) => void submitLogin(event)}>
               <label htmlFor="admin-password">Password</label>
-              <input
+              <div className="password-wrap"><input
                 id="admin-password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="current-password"
                 required
                 autoFocus
                 placeholder="Enter your password"
-              />
+              /><button type="button" className="password-toggle" aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((value) => !value)}>
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button></div>
               {loginError && (
                 <p className="field-error" role="alert">
                   {loginError}

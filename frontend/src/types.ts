@@ -16,6 +16,27 @@ export type Training = {
   final_metrics: { mse: number; mae: number; r2: number | null };
   snapshots: Snapshot[];
 };
+export type ClusterSnapshot = {
+  iteration: number;
+  centroids: [number, number][];
+  assignments: number[];
+  inertia: number;
+};
+export type ClusterTraining = {
+  settings: { clusters: number; max_iterations: number };
+  total_iterations: number;
+  snapshots: ClusterSnapshot[];
+};
+export type ClusterExample = {
+  id: string;
+  title: string;
+  short: string;
+  description: string;
+  xLabel: string;
+  yLabel: string;
+  points: [number, number][];
+  training: ClusterTraining;
+};
 export type Example = {
   id: string;
   title: string;
