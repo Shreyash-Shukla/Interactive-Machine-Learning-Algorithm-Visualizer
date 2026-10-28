@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import type { Dataset, Point } from "../types";
+import type { Dataset, LabeledPoint, Point } from "../types";
 
 const MAX_FILE = 5 * 1024 * 1024;
 const MAX_ROWS = 5000;
@@ -21,6 +21,40 @@ export function selectedPoints(dataset: Dataset): {
     return x === null || y === null ? [] : [{ x, y }];
   });
   return { points, excluded: dataset.rows.length - points.length };
+}
+
+export function classLabel(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  if (typeof value === "number" && !Number.isFinite(value)) return null;
+  const label = String(value).trim();
+  return label && label.length <= 60 ? label : null;
+}
+
+export function selectedLabeledPoints(dataset: Dataset): { points: LabeledPoint[]; excluded: number } {
+  const points = dataset.rows.flatMap((row) => {
+    const x = numeric(row[dataset.xColumn]);
+    const y = numeric(row[dataset.yColumn]);
+    const label = classLabel(row[dataset.labelColumn]);
+    return x === null || y === null || label === null ? [] : [{ x, y, label }];
+  });
+  return { points, excluded: dataset.rows.length - points.length };
+}
+
+export function validateClassificationSelection(dataset: Dataset, k: number): string | null {
+  if (!dataset.labelColumn || !dataset.columns.includes(dataset.labelColumn))
+    return "Choose a class label column.";
+  if (new Set([dataset.xColumn, dataset.yColumn, dataset.labelColumn]).size !== 3)
+    return "Choose three different columns for the features and class label.";
+  const { points } = selectedLabeledPoints(dataset);
+  if (points.length < Math.max(2, k))
+    return `At least ${Math.max(2, k)} rows need two numeric features and a class label.`;
+  if (new Set(points.map((point) => point.label)).size < 2)
+    return "At least two different classes are required.";
+  if (new Set(points.map((point) => JSON.stringify([point.x, point.y]))).size < 2)
+    return "Feature pairs must not all be identical.";
+  if (new Set(points.map((point) => point.label)).size > 8)
+    return "Choose a label column with at most eight classes.";
+  return null;
 }
 
 export function validateSelection(dataset: Dataset, algorithm: "linear" | "kmeans" | "knn" = "linear", count = 2): string | null {
@@ -104,6 +138,8 @@ export async function parseDataset(file: File): Promise<Dataset> {
     numericColumns,
     xColumn: numericColumns[0],
     yColumn: numericColumns[1],
+    labelColumn: columns.find((column) => !numericColumns.includes(column)) ??
+      columns.find((column) => column !== numericColumns[0] && column !== numericColumns[1]) ?? "",
   };
   if (
     !numericColumns.some((xColumn) =>

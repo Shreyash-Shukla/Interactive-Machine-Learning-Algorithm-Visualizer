@@ -1,4 +1,5 @@
 export type Point = { x: number; y: number };
+export type LabeledPoint = Point & { label: string };
 export type Snapshot = {
   epoch: number;
   slope: number;
@@ -37,6 +38,15 @@ export type ClusterExample = {
   points: [number, number][];
   training: ClusterTraining;
 };
+export type ClassificationExample = {
+  id: string;
+  title: string;
+  short: string;
+  description: string;
+  xLabel: string;
+  yLabel: string;
+  points: [number, number, string][];
+};
 export type Example = {
   id: string;
   title: string;
@@ -56,4 +66,5 @@ export type Dataset = {
   numericColumns: string[];
   xColumn: string;
   yColumn: string;
+  labelColumn: string;
 };

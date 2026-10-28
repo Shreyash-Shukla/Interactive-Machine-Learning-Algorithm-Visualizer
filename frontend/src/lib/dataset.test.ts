@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseDataset, selectedPoints, validateSelection } from './dataset'
+import { parseDataset, selectedLabeledPoints, selectedPoints, validateClassificationSelection, validateSelection } from './dataset'
 
 describe('dataset parsing', () => {
   it('parses CSV and reports excluded rows', async () => {
@@ -32,5 +32,21 @@ describe('dataset parsing', () => {
     expect(validateSelection(dataset, 'knn', 3)).toBeNull()
     expect(validateSelection(dataset, 'knn', 5)).toMatch(/usable/)
     expect(validateSelection({ ...dataset, yColumn: 'x' }, 'knn', 1)).toMatch(/different/)
+  })
+
+  it('parses labeled rows and validates classification columns', async () => {
+    const dataset = await parseDataset(new File([
+      'length,width,species\n1.2,0.2,Setosa\n1.5,0.3,Setosa\n4.0,1.2,Versicolor\n4.3,1.4,Versicolor\n5.1,bad,Virginica',
+    ], 'flowers.csv'))
+    expect(dataset.labelColumn).toBe('species')
+    expect(selectedLabeledPoints(dataset)).toEqual({
+      points: [
+        { x: 1.2, y: 0.2, label: 'Setosa' }, { x: 1.5, y: 0.3, label: 'Setosa' },
+        { x: 4, y: 1.2, label: 'Versicolor' }, { x: 4.3, y: 1.4, label: 'Versicolor' },
+      ], excluded: 1,
+    })
+    expect(validateClassificationSelection(dataset, 3)).toBeNull()
+    expect(validateClassificationSelection(dataset, 5)).toMatch(/At least 5/)
+    expect(validateClassificationSelection({ ...dataset, labelColumn: 'length' }, 3)).toMatch(/different/)
   })
 })

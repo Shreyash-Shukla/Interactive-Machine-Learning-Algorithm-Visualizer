@@ -1,0 +1,34 @@
+[
+  {
+    "id": "flowers",
+    "title": "Flower varieties",
+    "short": "Flower varieties",
+    "description": "Synthetic flowers grouped by two petal measurements. The labels are examples, not a botanical dataset.",
+    "xLabel": "Petal length (cm)",
+    "yLabel": "Petal width (cm)",
+    "points": [
+      [1.1, 0.2, "Setosa"], [1.3, 0.2, "Setosa"], [1.4, 0.3, "Setosa"],
+      [1.5, 0.2, "Setosa"], [1.6, 0.4, "Setosa"], [1.7, 0.3, "Setosa"],
+      [3.4, 1.0, "Versicolor"], [3.7, 1.2, "Versicolor"], [4.0, 1.1, "Versicolor"],
+      [4.2, 1.4, "Versicolor"], [4.5, 1.3, "Versicolor"], [4.7, 1.5, "Versicolor"],
+      [5.1, 1.7, "Virginica"], [5.4, 1.9, "Virginica"], [5.7, 1.8, "Virginica"],
+      [5.9, 2.1, "Virginica"], [6.2, 2.2, "Virginica"], [6.5, 2.0, "Virginica"]
+    ]
+  },
+  {
+    "id": "fruit",
+    "title": "Fruit categories",
+    "short": "Fruit categories",
+    "description": "Synthetic fruit measurements showing how nearby examples vote for a category.",
+    "xLabel": "Weight (g)",
+    "yLabel": "Sweetness (1–10)",
+    "points": [
+      [135, 6.2, "Apple"], [145, 6.8, "Apple"], [155, 7.1, "Apple"],
+      [165, 6.5, "Apple"], [175, 7.4, "Apple"], [185, 6.9, "Apple"],
+      [110, 4.2, "Orange"], [120, 4.8, "Orange"], [130, 5.1, "Orange"],
+      [140, 4.5, "Orange"], [150, 5.3, "Orange"], [160, 4.9, "Orange"],
+      [115, 7.6, "Pear"], [125, 8.0, "Pear"], [135, 8.3, "Pear"],
+      [145, 7.8, "Pear"], [155, 8.5, "Pear"], [165, 8.1, "Pear"]
+    ]
+  }
+]

@@ -4,8 +4,10 @@ import { ScatterChart, LineChart } from "echarts/charts";
 import { GridComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsOption } from "echarts";
-import type { ClusterSnapshot, Point } from "../types";
+import type { ClusterSnapshot, LabeledPoint, Point } from "../types";
 import type { Neighbor } from "../lib/knn";
+import type { ClassNeighbor } from "../lib/knn-classification";
+import { classificationColors } from "../lib/chartColors";
 
 echarts.use([ScatterChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -17,6 +19,8 @@ const axis = {
   splitLine: { lineStyle: { color: "#303034" } },
 };
 const fmt = (value: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char);
 
 function bounds(values: number[]): [number, number] {
   const min = Math.min(...values);
@@ -38,7 +42,7 @@ function baseOption(points: Point[], xLabel: string, yLabel: string, extraX: num
       textStyle: { color: "#f5f5f3" },
       formatter: (params: unknown) => {
         const item = params as { seriesName: string; value: [number, number] };
-        return `${item.seriesName}<br/>${xLabel}: <b>${fmt(item.value[0])}</b><br/>${yLabel}: <b>${fmt(item.value[1])}</b>`;
+        return `${escapeHtml(item.seriesName)}<br/>${escapeHtml(xLabel)}: <b>${fmt(item.value[0])}</b><br/>${escapeHtml(yLabel)}: <b>${fmt(item.value[1])}</b>`;
       },
     },
     xAxis: { type: "value", name: xLabel, nameLocation: "middle", nameGap: 36,
@@ -87,6 +91,33 @@ export function KnnChart({ points, query, prediction, neighbors, xLabel, yLabel 
       ...(query === null || prediction === null ? [] : [{ name: "Predicted point", type: "scatter" as const,
         data: [[query, prediction]], symbol: "diamond", symbolSize: 22,
         itemStyle: { color: colors[1], borderColor: "#f5f5f3", borderWidth: 2 }, z: 5 }]),
+    ],
+  };
+  return <div className="chart-wrap"><ReactEChartsCore echarts={echarts} option={option} notMerge style={{ height: "100%", width: "100%" }} /></div>;
+}
+
+export function ClassificationChart({ points, classes, query, prediction, neighbors, xLabel, yLabel }: {
+  points: LabeledPoint[]; classes: string[]; query: Point | null; prediction: string | null;
+  neighbors: ClassNeighbor[]; xLabel: string; yLabel: string;
+}) {
+  const option: EChartsOption = {
+    ...baseOption(points, xLabel, yLabel, query ? [query.x] : [], query ? [query.y] : []),
+    series: [
+      ...classes.map((label, index) => ({
+        name: label, type: "scatter" as const,
+        data: points.filter((point) => point.label === label).map((point) => [point.x, point.y]),
+        symbolSize: 9, itemStyle: { color: classificationColors[index], opacity: 0.8 },
+      })),
+      ...(neighbors.length ? [{
+        name: "Selected neighbors", type: "scatter" as const,
+        data: neighbors.map(({ point }) => [point.x, point.y]), symbolSize: 18,
+        itemStyle: { color: "transparent", borderColor: "#f5f5f3", borderWidth: 2 }, z: 5,
+      }] : []),
+      ...(query && prediction ? [{
+        name: `Predicted: ${prediction}`, type: "scatter" as const, data: [[query.x, query.y]],
+        symbol: "diamond", symbolSize: 24,
+        itemStyle: { color: classificationColors[classes.indexOf(prediction)], borderColor: "#f5f5f3", borderWidth: 2 }, z: 6,
+      }] : []),
     ],
   };
   return <div className="chart-wrap"><ReactEChartsCore echarts={echarts} option={option} notMerge style={{ height: "100%", width: "100%" }} /></div>;
