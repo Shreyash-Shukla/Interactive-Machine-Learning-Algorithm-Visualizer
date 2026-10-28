@@ -53,6 +53,12 @@ test('admin signs in, uploads data, and trains through protected API', async ({ 
   await page.getByRole('spinbutton', { name: 'length' }).fill('1.4')
   await page.getByRole('spinbutton', { name: 'width' }).fill('0.25')
   await expect(page.locator('.classification-query-grid .prediction-result strong')).toHaveText('Setosa')
+  await page.getByRole('combobox', { name: 'Choose an algorithm' }).selectOption('centroid')
+  await page.locator('input[type=file]').setInputFiles({ name: 'flowers.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('length,width,species\n1.2,0.2,Setosa\n1.5,0.3,Setosa\n1.7,0.2,Setosa\n4.0,1.2,Versicolor\n4.3,1.4,Versicolor') })
+  await page.getByRole('spinbutton', { name: 'length' }).fill('1.4')
+  await page.getByRole('spinbutton', { name: 'width' }).fill('0.25')
+  await expect(page.locator('.classification-query-grid .prediction-result strong')).toHaveText('Setosa')
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(page.getByRole('button', { name: 'Admin login' })).toBeVisible()
 })
@@ -80,7 +86,38 @@ test('public K-Means and KNN work without backend requests', async ({ page }) =>
   await page.getByRole('spinbutton', { name: 'Weight (g)' }).fill('140')
   await page.getByRole('spinbutton', { name: 'Sweetness (1–10)' }).fill('4.8')
   await expect(page.locator('.classification-query-grid .prediction-result strong')).toHaveText('Orange')
+  await page.getByRole('combobox', { name: 'Choose an algorithm' }).selectOption('centroid')
+  await expect(page.getByRole('heading', { name: 'Flower varieties' })).toBeVisible()
+  await expect(page.getByText('◆ Class center · ▲ Query')).toBeVisible()
+  await page.getByRole('spinbutton', { name: 'Petal length (cm)' }).fill('1.45')
+  await page.getByRole('spinbutton', { name: 'Petal width (cm)' }).fill('0.25')
+  await expect(page.locator('.classification-query-grid .prediction-result strong')).toHaveText('Setosa')
+  await page.getByRole('combobox', { name: 'Choose an algorithm' }).selectOption('knn-class')
+  await page.getByRole('spinbutton', { name: 'Petal length (cm)' }).fill('4.5')
+  await page.getByRole('spinbutton', { name: 'Petal width (cm)' }).fill('1.4')
+  await expect(page.locator('.classification-query-grid .prediction-result strong')).toHaveText('Versicolor')
   expect(calls).toHaveLength(0)
+})
+
+test('nearest centroid classifies uploaded data without calling the training API', async ({ page }) => {
+  const trainCalls: string[] = []
+  page.on('request', request => { if (request.url().includes('/api/train')) trainCalls.push(request.url()) })
+  await page.route('**/api/auth/login', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ access_token: 'local-test', expires_in: 1800 }),
+  }))
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Admin login' }).click()
+  await page.getByLabel('Password', { exact: true }).fill('local-test')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Choose an algorithm' }).selectOption('centroid')
+  await page.locator('input[type=file]').setInputFiles({ name: 'samples.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('length,width,species\n1,0.2,A\n2,0.4,A\n8,1.0,B\n9,1.2,B') })
+  await expect(page.getByText('4 usable rows')).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Class label' })).toHaveValue('species')
+  await page.getByRole('spinbutton', { name: 'length' }).fill('8')
+  await page.getByRole('spinbutton', { name: 'width' }).fill('1.1')
+  await expect(page.locator('.classification-query-grid .prediction-result strong')).toHaveText('B')
+  expect(trainCalls).toHaveLength(0)
 })
 
 test('tablet and mobile layouts have no horizontal overflow', async ({ page }) => {
@@ -92,6 +129,8 @@ test('tablet and mobile layouts have no horizontal overflow', async ({ page }) =
     await expect(page.locator('#mobile-algorithm-select')).toBeVisible()
     await page.locator('#mobile-algorithm-select').selectOption('knn-class')
     await expect(page.getByRole('heading', { name: 'Flower varieties' })).toBeVisible()
+    await page.locator('#mobile-algorithm-select').selectOption('centroid')
+    await expect(page.getByText('class centers', { exact: false }).first()).toBeVisible()
     await page.locator('#mobile-algorithm-select').selectOption('linear')
     await page.getByRole('combobox', { name: 'Explore a dataset' }).selectOption('ads')
     await expect(page.getByRole('heading', { name: 'Advertising spend vs sales' })).toBeVisible()

@@ -7,6 +7,7 @@ import type { EChartsOption } from "echarts";
 import type { ClusterSnapshot, LabeledPoint, Point } from "../types";
 import type { Neighbor } from "../lib/knn";
 import type { ClassNeighbor } from "../lib/knn-classification";
+import type { ClassCentroid } from "../lib/nearest-centroid";
 import { classificationColors } from "../lib/chartColors";
 
 echarts.use([ScatterChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
@@ -96,9 +97,9 @@ export function KnnChart({ points, query, prediction, neighbors, xLabel, yLabel 
   return <div className="chart-wrap"><ReactEChartsCore echarts={echarts} option={option} notMerge style={{ height: "100%", width: "100%" }} /></div>;
 }
 
-export function ClassificationChart({ points, classes, query, prediction, neighbors, xLabel, yLabel }: {
+export function ClassificationChart({ points, classes, query, prediction, neighbors, centroids = [], xLabel, yLabel }: {
   points: LabeledPoint[]; classes: string[]; query: Point | null; prediction: string | null;
-  neighbors: ClassNeighbor[]; xLabel: string; yLabel: string;
+  neighbors: ClassNeighbor[]; centroids?: ClassCentroid[]; xLabel: string; yLabel: string;
 }) {
   const option: EChartsOption = {
     ...baseOption(points, xLabel, yLabel, query ? [query.x] : [], query ? [query.y] : []),
@@ -108,6 +109,11 @@ export function ClassificationChart({ points, classes, query, prediction, neighb
         data: points.filter((point) => point.label === label).map((point) => [point.x, point.y]),
         symbolSize: 9, itemStyle: { color: classificationColors[index], opacity: 0.8 },
       })),
+      ...centroids.map((center) => ({
+        name: `${center.label} center (${center.count})`, type: "scatter" as const,
+        data: [[center.x, center.y]], symbol: "diamond", symbolSize: 20,
+        itemStyle: { color: classificationColors[classes.indexOf(center.label)], borderColor: "#f5f5f3", borderWidth: 2 }, z: 4,
+      })),
       ...(neighbors.length ? [{
         name: "Selected neighbors", type: "scatter" as const,
         data: neighbors.map(({ point }) => [point.x, point.y]), symbolSize: 18,
@@ -115,7 +121,7 @@ export function ClassificationChart({ points, classes, query, prediction, neighb
       }] : []),
       ...(query && prediction ? [{
         name: `Predicted: ${prediction}`, type: "scatter" as const, data: [[query.x, query.y]],
-        symbol: "diamond", symbolSize: 24,
+        symbol: centroids.length ? "triangle" : "diamond", symbolSize: 24,
         itemStyle: { color: classificationColors[classes.indexOf(prediction)], borderColor: "#f5f5f3", borderWidth: 2 }, z: 6,
       }] : []),
     ],

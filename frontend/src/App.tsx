@@ -22,6 +22,7 @@ import { ApiError, login, train, trainKMeans } from "./lib/api";
 import { numeric, parseDataset, selectedLabeledPoints, selectedPoints, validateClassificationSelection, validateSelection } from "./lib/dataset";
 import { predictKnn } from "./lib/knn";
 import { classifyKnn } from "./lib/knn-classification";
+import { classifyCentroid, fitCentroids } from "./lib/nearest-centroid";
 import { LossChart, RegressionChart } from "./components/Charts";
 import { ClassificationChart, ClusterChart, KnnChart } from "./components/AlgorithmCharts";
 import { classificationColors } from "./lib/chartColors";
@@ -35,9 +36,9 @@ import "./App.css";
 const examples = examplesJson as Example[];
 const clusterExamples = clusterExamplesJson as ClusterExample[];
 const classificationExamples = classificationExamplesJson as ClassificationExample[];
-type Algorithm = "linear" | "kmeans" | "knn" | "knn-class";
+type Algorithm = "linear" | "kmeans" | "knn" | "knn-class" | "centroid";
 const algorithmNames: Record<Algorithm, string> = {
-  linear: "Linear regression", kmeans: "K-Means clustering", knn: "KNN regression", "knn-class": "KNN classification",
+  linear: "Linear regression", kmeans: "K-Means clustering", knn: "KNN regression", "knn-class": "KNN classification", centroid: "Nearest centroid",
 };
 const format = (value: number | null, digits = 2) =>
   value === null
@@ -80,8 +81,9 @@ function App() {
   const linearExample = examples.find((item) => item.id === exampleId) ?? examples[0];
   const clusterExample = clusterExamples.find((item) => item.id === exampleId) ?? clusterExamples[0];
   const classificationExample = classificationExamples.find((item) => item.id === exampleId) ?? classificationExamples[0];
-  const example = algorithm === "kmeans" ? clusterExample : algorithm === "knn-class" ? classificationExample : linearExample;
-  const activeExamples = algorithm === "kmeans" ? clusterExamples : algorithm === "knn-class" ? classificationExamples : examples;
+  const isClassification = algorithm === "knn-class" || algorithm === "centroid";
+  const example = algorithm === "kmeans" ? clusterExample : isClassification ? classificationExample : linearExample;
+  const activeExamples = algorithm === "kmeans" ? clusterExamples : isClassification ? classificationExamples : examples;
   const classPoints: LabeledPoint[] = useMemo(
     () => dataset ? selectedLabeledPoints(dataset).points :
       classificationExample.points.map(([x, y, label]) => ({ x, y, label })),
@@ -89,13 +91,13 @@ function App() {
   );
   const points: Point[] = useMemo(
     () =>
-      algorithm === "knn-class" ? classPoints.map(({ x, y }) => ({ x, y })) : dataset
+      isClassification ? classPoints.map(({ x, y }) => ({ x, y })) : dataset
         ? selectedPoints(dataset).points
         : example.points.map(([x, y]) => ({ x, y })),
-    [algorithm, classPoints, dataset, example],
+    [isClassification, classPoints, dataset, example],
   );
-  const selectionError = dataset ? algorithm === "knn-class"
-    ? validateClassificationSelection(dataset, neighbors)
+  const selectionError = dataset ? isClassification
+    ? validateClassificationSelection(dataset, algorithm === "centroid" ? 2 : neighbors)
     : validateSelection(dataset, algorithm, algorithm === "kmeans" ? clusters : neighbors) : null;
   const training: Training | null = algorithm === "linear" ? (dataset
     ? customTraining
@@ -108,7 +110,7 @@ function App() {
   const clusterSnapshot = clusterTraining?.snapshots[index] ?? null;
   const xLabel = dataset?.xColumn ?? example.xLabel;
   const yLabel = dataset?.yColumn ?? example.yLabel;
-  const excluded = dataset ? algorithm === "knn-class" ? selectedLabeledPoints(dataset).excluded : selectedPoints(dataset).excluded : 0;
+  const excluded = dataset ? isClassification ? selectedLabeledPoints(dataset).excluded : selectedPoints(dataset).excluded : 0;
   const linearX = numeric(linearInput);
   const linearPrediction = training && linearX !== null
     ? training.final_slope * linearX + training.final_intercept : null;
@@ -121,6 +123,9 @@ function App() {
   const classResult = algorithm === "knn-class" && !selectionError && classQuery && classPoints.length >= neighbors
     ? classifyKnn(classPoints, classQuery, neighbors) : null;
   const classes = [...new Set(classPoints.map((point) => point.label))];
+  const centroids = algorithm === "centroid" && !selectionError ? fitCentroids(classPoints) : [];
+  const centroidResult = algorithm === "centroid" && !selectionError && classQuery
+    ? classifyCentroid(classPoints, classQuery) : null;
 
   useEffect(() => {
     if (!playing || !playback) return;
@@ -155,7 +160,7 @@ function App() {
   function selectAlgorithm(next: Algorithm) {
     setAlgorithm(next);
     setDataset(null);
-    setExampleId(next === "kmeans" ? clusterExamples[0].id : next === "knn-class" ? classificationExamples[0].id : examples[0].id);
+    setExampleId(next === "kmeans" ? clusterExamples[0].id : next === "knn-class" || next === "centroid" ? classificationExamples[0].id : examples[0].id);
     clearRun();
   }
   function selectExample(id: string) {
@@ -310,6 +315,7 @@ function App() {
                 <option value="kmeans">K-Means clustering</option>
                 <option value="knn">KNN regression</option>
                 <option value="knn-class">KNN classification</option>
+                <option value="centroid">Nearest centroid</option>
               </select>
               <ChevronDown size={16} />
             </div>
@@ -351,7 +357,7 @@ function App() {
               <div className="dataset-card">
                 <div className="dataset-text">
                   <strong>Synthetic example</strong>
-                  <span>{points.length} data points · {algorithm === "knn-class" ? "labeled example" : "precomputed replay"}</span>
+                  <span>{points.length} data points · {isClassification ? "labeled example" : algorithm === "knn" ? "example points" : "precomputed replay"}</span>
                 </div>
               </div>
             )}
@@ -447,7 +453,7 @@ function App() {
                         </div>
                       </div>
                     </div>
-                    {algorithm === "knn-class" && <div className="label-column">
+                    {isClassification && <div className="label-column">
                       <label className="field-label" htmlFor="class-column">Class label</label>
                       <div className="select-wrap">
                         <select id="class-column" value={dataset.labelColumn} onChange={(event) => selectLabelColumn(event.target.value)}>
@@ -582,9 +588,9 @@ function App() {
           {!token && (
             <div className="public-note">
               <div>
-                <strong>{algorithm === "knn" || algorithm === "knn-class" ? "Example prediction" : "Example replay"}</strong>
+                <strong>{algorithm === "knn" || isClassification ? "Example prediction" : "Example replay"}</strong>
                 <p>
-                  {algorithm === "knn" || algorithm === "knn-class" ? "Try a prediction with the sample points. Sign in to use your own data." :
+                  {algorithm === "knn" || isClassification ? "Try a prediction with the sample points. Sign in to use your own data." :
                     "Real training snapshots are bundled with the site. Sign in to train your own data."}
                 </p>
               </div>
@@ -595,12 +601,13 @@ function App() {
         <main className="main-content">
           <div className="content-heading">
             <div>
-            <div className="eyebrow violet">{algorithmNames[algorithm]} / {algorithm === "knn" || algorithm === "knn-class" ? "Prediction" : "Training replay"}</div>
+            <div className="eyebrow violet">{algorithmNames[algorithm]} / {algorithm === "knn" || isClassification ? "Prediction" : "Training replay"}</div>
               <h1>{dataset ? dataset.name : example.title}</h1>
               <p>
                 {dataset
                   ? `A custom dataset with ${points.length} usable points.`
                   : algorithm === "knn-class" ? "See how nearby labeled examples vote for a class." :
+                    algorithm === "centroid" ? "See how each class center guides a prediction." :
                     algorithm === "knn" ? "See which nearby examples shape a prediction." :
                     algorithm === "kmeans" ? "Watch the cluster centers move toward groups of points." :
                     "Watch a model improve its fit with every recorded step."}
@@ -619,6 +626,7 @@ function App() {
                 <option value="kmeans">K-Means clustering</option>
                 <option value="knn">KNN regression</option>
                 <option value="knn-class">KNN classification</option>
+                <option value="centroid">Nearest centroid</option>
               </select>
               <ChevronDown size={16} />
             </div>
@@ -667,7 +675,7 @@ function App() {
               <div className="panel-title">
                 <div>
                   <h3>{algorithm === "linear" ? "Model fit" : algorithm === "kmeans" ? "Cluster map" : algorithm === "knn" ? "Neighbor map" : "Class map"}</h3>
-                  <span>{points.length} observations · {xLabel} {algorithm === "knn-class" ? "×" : "→"} {yLabel}</span>
+                  <span>{points.length} observations · {xLabel} {isClassification ? "×" : "→"} {yLabel}</span>
                 </div>
               </div>
               <span className="live-indicator">
@@ -685,13 +693,15 @@ function App() {
               xLabel={xLabel} yLabel={yLabel}
             /> : algorithm === "knn" ? <KnnChart points={points} query={knnX} prediction={knnResult?.prediction ?? null}
               neighbors={knnResult?.neighbors ?? []} xLabel={xLabel} yLabel={yLabel} /> :
-              <ClassificationChart points={classPoints} classes={classes.slice(0, 8)} query={classResult ? classQuery : null}
-                prediction={classResult?.prediction ?? null} neighbors={classResult?.neighbors ?? []}
+              <ClassificationChart points={classPoints} classes={classes.slice(0, 8)} query={classResult || centroidResult ? classQuery : null}
+                prediction={classResult?.prediction ?? centroidResult?.prediction ?? null} neighbors={classResult?.neighbors ?? []}
+                centroids={centroids}
                 xLabel={xLabel} yLabel={yLabel} />}
-            {algorithm === "knn-class" && <div className="classification-legend">
+            {isClassification && <div className="classification-legend">
               {classes.slice(0, 8).map((label, index) => <span key={label}>
                 <i style={{ backgroundColor: classificationColors[index] }} />{label}
               </span>)}
+              {algorithm === "centroid" && <span>◆ Class center · ▲ Query</span>}
             </div>}
             {algorithm === "linear" ? <div className="equation-strip">
               <span>Current model</span>
@@ -713,8 +723,8 @@ function App() {
               <span className="epoch-chip">K = {neighbors}</span>
             </div> : <div className="equation-strip">
               <span>Predicted class</span>
-              <strong>{classResult?.prediction ?? "Enter both features to classify"}</strong>
-              <span className="epoch-chip">K = {neighbors}</span>
+              <strong>{classResult?.prediction ?? centroidResult?.prediction ?? "Enter both features to classify"}</strong>
+              <span className="epoch-chip">{algorithm === "centroid" ? `${centroids.length} class centers` : `K = ${neighbors}`}</span>
             </div>}
           </section>
 
@@ -759,16 +769,16 @@ function App() {
             <p className="side-hint">KNN averages nearby Y values. It does not train over epochs.</p>
           </section>}
 
-          {algorithm === "knn-class" && <section className="panel prediction-panel">
-            <div className="panel-title"><div><h3>Classify a new point</h3><span>Nearby labeled examples vote for the predicted category.</span></div></div>
-            <div className="prediction-settings">
+          {isClassification && <section className="panel prediction-panel">
+            <div className="panel-title"><div><h3>Classify a new point</h3><span>{algorithm === "centroid" ? "Each class is represented by the mean of its labeled points." : "Nearby labeled examples vote for the predicted category."}</span></div></div>
+            {algorithm === "knn-class" && <div className="prediction-settings">
               <label className="field-label" htmlFor="class-neighbor-count">Nearest neighbors (K)</label>
               <div className="select-wrap">
                 <select id="class-neighbor-count" value={neighbors} onChange={(event) => setNeighbors(Number(event.target.value))}>
                   {[1, 3, 5, 7, 9].map((value) => <option key={value} value={value}>{value} neighbors</option>)}
                 </select><ChevronDown size={16} />
               </div>
-            </div>
+            </div>}
             <div className="classification-query-grid">
               <div><label className="field-label" htmlFor="class-query-x">{xLabel}</label>
                 <input id="class-query-x" type="number" inputMode="decimal" value={classInputX}
@@ -777,12 +787,13 @@ function App() {
                 <input id="class-query-y" type="number" inputMode="decimal" value={classInputY}
                   onChange={(event) => setClassInputY(event.target.value)} placeholder="Enter second feature" /></div>
               <div className="prediction-result" aria-live="polite"><span>Predicted class</span>
-                <strong>{classResult?.prediction ?? "—"}</strong></div>
+                <strong>{classResult?.prediction ?? centroidResult?.prediction ?? "—"}</strong></div>
             </div>
             {((classInputX && classX === null) || (classInputY && classY === null)) &&
               <p className="field-error">Enter finite feature values within ±1e12.</p>}
             {selectionError && <p className="field-error" role="alert">{selectionError}</p>}
             {classResult && <p className="side-hint">Neighbor votes: {classResult.votes.map((vote) => `${vote.label} ${vote.count}`).join(" · ")}. Ties go to the class of the closest neighbor.</p>}
+            {algorithm === "centroid" && <p className="side-hint">The diamonds show class centers. The closest center determines the prediction; exact ties use the first class in the data. No training epochs are needed.</p>}
             <p className="side-hint">Distance uses both features, scaled to their training ranges. No backend request is needed.</p>
           </section>}
 
@@ -940,7 +951,7 @@ function App() {
           </div>}
           <footer className="app-footer">
             <span>
-              <span className="footer-dot" /> {algorithm === "linear" ? "Batch gradient descent" : algorithm === "kmeans" ? "K-Means iterations" : algorithm === "knn" ? "Nearest neighbor averaging" : "Nearest neighbor voting"} · Computed from scratch
+              <span className="footer-dot" /> {algorithm === "linear" ? "Batch gradient descent" : algorithm === "kmeans" ? "K-Means iterations" : algorithm === "knn" ? "Nearest neighbor averaging" : algorithm === "knn-class" ? "Nearest neighbor voting" : "Class mean distance"} · Computed from scratch
             </span>
             <span>
               {token ? "Admin session" : "Public demo"}{" "}
