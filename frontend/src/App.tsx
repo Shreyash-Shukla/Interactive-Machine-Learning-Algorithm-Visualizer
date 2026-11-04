@@ -23,6 +23,7 @@ import { numeric, parseDataset, selectedLabeledPoints, selectedPoints, validateC
 import { predictKnn } from "./lib/knn";
 import { classifyKnn } from "./lib/knn-classification";
 import { classifyCentroid, fitCentroids } from "./lib/nearest-centroid";
+import { classifyNaiveBayes, fitNaiveBayes } from "./lib/naive-bayes";
 import { LossChart, RegressionChart } from "./components/Charts";
 import { ClassificationChart, ClusterChart, KnnChart } from "./components/AlgorithmCharts";
 import { classificationColors } from "./lib/chartColors";
@@ -36,9 +37,9 @@ import "./App.css";
 const examples = examplesJson as Example[];
 const clusterExamples = clusterExamplesJson as ClusterExample[];
 const classificationExamples = classificationExamplesJson as ClassificationExample[];
-type Algorithm = "linear" | "kmeans" | "knn" | "knn-class" | "centroid";
+type Algorithm = "linear" | "kmeans" | "knn" | "knn-class" | "centroid" | "naive-bayes";
 const algorithmNames: Record<Algorithm, string> = {
-  linear: "Linear regression", kmeans: "K-Means clustering", knn: "KNN regression", "knn-class": "KNN classification", centroid: "Nearest centroid",
+  linear: "Linear regression", kmeans: "K-Means clustering", knn: "KNN regression", "knn-class": "KNN classification", centroid: "Nearest centroid", "naive-bayes": "Naive Bayes",
 };
 const format = (value: number | null, digits = 2) =>
   value === null
@@ -81,7 +82,7 @@ function App() {
   const linearExample = examples.find((item) => item.id === exampleId) ?? examples[0];
   const clusterExample = clusterExamples.find((item) => item.id === exampleId) ?? clusterExamples[0];
   const classificationExample = classificationExamples.find((item) => item.id === exampleId) ?? classificationExamples[0];
-  const isClassification = algorithm === "knn-class" || algorithm === "centroid";
+  const isClassification = algorithm === "knn-class" || algorithm === "centroid" || algorithm === "naive-bayes";
   const example = algorithm === "kmeans" ? clusterExample : isClassification ? classificationExample : linearExample;
   const activeExamples = algorithm === "kmeans" ? clusterExamples : isClassification ? classificationExamples : examples;
   const classPoints: LabeledPoint[] = useMemo(
@@ -97,7 +98,7 @@ function App() {
     [isClassification, classPoints, dataset, example],
   );
   const selectionError = dataset ? isClassification
-    ? validateClassificationSelection(dataset, algorithm === "centroid" ? 2 : neighbors)
+    ? validateClassificationSelection(dataset, algorithm === "centroid" || algorithm === "naive-bayes" ? 2 : neighbors)
     : validateSelection(dataset, algorithm, algorithm === "kmeans" ? clusters : neighbors) : null;
   const training: Training | null = algorithm === "linear" ? (dataset
     ? customTraining
@@ -123,9 +124,12 @@ function App() {
   const classResult = algorithm === "knn-class" && !selectionError && classQuery && classPoints.length >= neighbors
     ? classifyKnn(classPoints, classQuery, neighbors) : null;
   const classes = [...new Set(classPoints.map((point) => point.label))];
-  const centroids = algorithm === "centroid" && !selectionError ? fitCentroids(classPoints) : [];
+  const centroids = algorithm === "centroid" && !selectionError ? fitCentroids(classPoints)
+    : algorithm === "naive-bayes" && !selectionError && classPoints.length >= 2 ? fitNaiveBayes(classPoints).centroids : [];
   const centroidResult = algorithm === "centroid" && !selectionError && classQuery
     ? classifyCentroid(classPoints, classQuery) : null;
+  const naiveBayesResult = algorithm === "naive-bayes" && !selectionError && classQuery
+    ? classifyNaiveBayes(classPoints, classQuery) : null;
 
   useEffect(() => {
     if (!playing || !playback) return;
@@ -160,7 +164,7 @@ function App() {
   function selectAlgorithm(next: Algorithm) {
     setAlgorithm(next);
     setDataset(null);
-    setExampleId(next === "kmeans" ? clusterExamples[0].id : next === "knn-class" || next === "centroid" ? classificationExamples[0].id : examples[0].id);
+    setExampleId(next === "kmeans" ? clusterExamples[0].id : next === "knn-class" || next === "centroid" || next === "naive-bayes" ? classificationExamples[0].id : examples[0].id);
     clearRun();
   }
   function selectExample(id: string) {
@@ -316,6 +320,7 @@ function App() {
                 <option value="knn">KNN regression</option>
                 <option value="knn-class">KNN classification</option>
                 <option value="centroid">Nearest centroid</option>
+                <option value="naive-bayes">Naive Bayes</option>
               </select>
               <ChevronDown size={16} />
             </div>
@@ -608,6 +613,7 @@ function App() {
                   ? `A custom dataset with ${points.length} usable points.`
                   : algorithm === "knn-class" ? "See how nearby labeled examples vote for a class." :
                     algorithm === "centroid" ? "See how each class center guides a prediction." :
+                    algorithm === "naive-bayes" ? "See how Gaussian distributions and Bayes' theorem determine class probabilities." :
                     algorithm === "knn" ? "See which nearby examples shape a prediction." :
                     algorithm === "kmeans" ? "Watch the cluster centers move toward groups of points." :
                     "Watch a model improve its fit with every recorded step."}
@@ -627,6 +633,7 @@ function App() {
                 <option value="knn">KNN regression</option>
                 <option value="knn-class">KNN classification</option>
                 <option value="centroid">Nearest centroid</option>
+                <option value="naive-bayes">Naive Bayes</option>
               </select>
               <ChevronDown size={16} />
             </div>
@@ -693,8 +700,8 @@ function App() {
               xLabel={xLabel} yLabel={yLabel}
             /> : algorithm === "knn" ? <KnnChart points={points} query={knnX} prediction={knnResult?.prediction ?? null}
               neighbors={knnResult?.neighbors ?? []} xLabel={xLabel} yLabel={yLabel} /> :
-              <ClassificationChart points={classPoints} classes={classes.slice(0, 8)} query={classResult || centroidResult ? classQuery : null}
-                prediction={classResult?.prediction ?? centroidResult?.prediction ?? null} neighbors={classResult?.neighbors ?? []}
+              <ClassificationChart points={classPoints} classes={classes.slice(0, 8)} query={classResult || centroidResult || naiveBayesResult ? classQuery : null}
+                prediction={classResult?.prediction ?? centroidResult?.prediction ?? naiveBayesResult?.prediction ?? null} neighbors={classResult?.neighbors ?? []}
                 centroids={centroids}
                 xLabel={xLabel} yLabel={yLabel} />}
             {isClassification && <div className="classification-legend">
@@ -702,6 +709,7 @@ function App() {
                 <i style={{ backgroundColor: classificationColors[index] }} />{label}
               </span>)}
               {algorithm === "centroid" && <span>◆ Class center · ▲ Query</span>}
+              {algorithm === "naive-bayes" && <span>◆ Class mean · ▲ Query</span>}
             </div>}
             {algorithm === "linear" ? <div className="equation-strip">
               <span>Current model</span>
@@ -721,6 +729,10 @@ function App() {
               <span>Prediction</span>
               <strong>{knnResult ? `${yLabel} ≈ ${format(knnResult.prediction)}` : "Enter X to predict Y"}</strong>
               <span className="epoch-chip">K = {neighbors}</span>
+            </div> : algorithm === "naive-bayes" ? <div className="equation-strip">
+              <span>Predicted class</span>
+              <strong>{naiveBayesResult ? `${naiveBayesResult.prediction} (${format(naiveBayesResult.posteriors[0].probability * 100, 1)}%)` : "Enter both features to classify"}</strong>
+              <span className="epoch-chip">{classes.length} classes · Bayes' theorem</span>
             </div> : <div className="equation-strip">
               <span>Predicted class</span>
               <strong>{classResult?.prediction ?? centroidResult?.prediction ?? "Enter both features to classify"}</strong>
@@ -770,7 +782,7 @@ function App() {
           </section>}
 
           {isClassification && <section className="panel prediction-panel">
-            <div className="panel-title"><div><h3>Classify a new point</h3><span>{algorithm === "centroid" ? "Each class is represented by the mean of its labeled points." : "Nearby labeled examples vote for the predicted category."}</span></div></div>
+            <div className="panel-title"><div><h3>Classify a new point</h3><span>{algorithm === "centroid" ? "Each class is represented by the mean of its labeled points." : algorithm === "naive-bayes" ? "Gaussian distributions and Bayes' Theorem calculate class probabilities." : "Nearby labeled examples vote for the predicted category."}</span></div></div>
             {algorithm === "knn-class" && <div className="prediction-settings">
               <label className="field-label" htmlFor="class-neighbor-count">Nearest neighbors (K)</label>
               <div className="select-wrap">
@@ -787,14 +799,16 @@ function App() {
                 <input id="class-query-y" type="number" inputMode="decimal" value={classInputY}
                   onChange={(event) => setClassInputY(event.target.value)} placeholder="Enter second feature" /></div>
               <div className="prediction-result" aria-live="polite"><span>Predicted class</span>
-                <strong>{classResult?.prediction ?? centroidResult?.prediction ?? "—"}</strong></div>
+                <strong>{classResult?.prediction ?? centroidResult?.prediction ?? naiveBayesResult?.prediction ?? "—"}</strong></div>
             </div>
             {((classInputX && classX === null) || (classInputY && classY === null)) &&
               <p className="field-error">Enter finite feature values within ±1e12.</p>}
             {selectionError && <p className="field-error" role="alert">{selectionError}</p>}
             {classResult && <p className="side-hint">Neighbor votes: {classResult.votes.map((vote) => `${vote.label} ${vote.count}`).join(" · ")}. Ties go to the class of the closest neighbor.</p>}
+            {naiveBayesResult && <p className="side-hint">Posterior probabilities: {naiveBayesResult.posteriors.map((p) => `${p.label} ${format(p.probability * 100, 1)}%`).join(" · ")}.</p>}
             {algorithm === "centroid" && <p className="side-hint">The diamonds show class centers. The closest center determines the prediction; exact ties use the first class in the data. No training epochs are needed.</p>}
-            <p className="side-hint">Distance uses both features, scaled to their training ranges. No backend request is needed.</p>
+            {algorithm === "naive-bayes" && <p className="side-hint">Diamonds mark class feature means. The normal distribution evaluates likelihood for each class, multiplied by prior probability. No backend request is needed.</p>}
+            {algorithm === "knn-class" && <p className="side-hint">Distance uses both features, scaled to their training ranges. No backend request is needed.</p>}
           </section>}
 
           {(algorithm === "linear" || algorithm === "kmeans") && <section className="panel playback-panel">
@@ -951,7 +965,7 @@ function App() {
           </div>}
           <footer className="app-footer">
             <span>
-              <span className="footer-dot" /> {algorithm === "linear" ? "Batch gradient descent" : algorithm === "kmeans" ? "K-Means iterations" : algorithm === "knn" ? "Nearest neighbor averaging" : algorithm === "knn-class" ? "Nearest neighbor voting" : "Class mean distance"} · Computed from scratch
+              <span className="footer-dot" /> {algorithm === "linear" ? "Batch gradient descent" : algorithm === "kmeans" ? "K-Means iterations" : algorithm === "knn" ? "Nearest neighbor averaging" : algorithm === "knn-class" ? "Nearest neighbor voting" : algorithm === "centroid" ? "Class mean distance" : "Gaussian likelihood & Bayes' theorem"} · Computed from scratch
             </span>
             <span>
               {token ? "Admin session" : "Public demo"}{" "}
